@@ -1,457 +1,536 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Separator } from '@/components/ui/separator';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
-import { FileText, Mail, Calculator, User, Clock, DollarSign } from 'lucide-react';
+import { FileText, Download, Plus, Trash2, Bot, Sparkles } from 'lucide-react';
 import jsPDF from 'jspdf';
 
-interface InvoiceData {
-  clientName: string;
-  serviceDescription: string;
-  totalHours: number;
-  hourlyRate: number;
-  userName: string;
-  userEmail: string;
+// Import AI components
+import ExpenseReceiptMatcher from '@/components/ExpenseReceiptMatcher';
+import AIBrandingThemes from '@/components/AIBrandingThemes';
+import ClientInfoEnricher from '@/components/ClientInfoEnricher';
+import DisputeResolverBot from '@/components/DisputeResolverBot';
+
+interface InvoiceItem {
+  id: string;
+  description: string;
+  quantity: number;
+  rate: number;
+  amount: number;
+}
+
+interface ClientInfo {
+  name: string;
+  email: string;
+  company?: string;
+  address?: string;
+  phone?: string;
+}
+
+interface BrandTheme {
+  id: string;
+  name: string;
+  colors: {
+    primary: string;
+    secondary: string;
+    accent: string;
+  };
+  fonts: {
+    heading: string;
+    body: string;
+  };
 }
 
 const InvoiceGenerator: React.FC = () => {
-  const [formData, setFormData] = useState<InvoiceData>({
-    clientName: '',
-    serviceDescription: '',
-    totalHours: 0,
-    hourlyRate: 0,
-    userName: '',
-    userEmail: ''
+  const [invoiceNumber, setInvoiceNumber] = useState('INV-001');
+  const [invoiceDate, setInvoiceDate] = useState(new Date().toISOString().split('T')[0]);
+  const [dueDate, setDueDate] = useState('');
+  const [clientInfo, setClientInfo] = useState<ClientInfo>({
+    name: '',
+    email: '',
+    company: '',
+    address: '',
+    phone: ''
   });
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [isSending, setIsSending] = useState(false);
+  const [items, setItems] = useState<InvoiceItem[]>([
+    { id: '1', description: '', quantity: 1, rate: 0, amount: 0 }
+  ]);
+  const [notes, setNotes] = useState('');
+  const [appliedTheme, setAppliedTheme] = useState<BrandTheme | null>(null);
+  const invoiceRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
 
-  const handleInputChange = (field: keyof InvoiceData, value: string | number) => {
-    setFormData(prev => ({
-      ...prev,
-      [field]: value
+  const addItem = () => {
+    const newItem: InvoiceItem = {
+      id: Date.now().toString(),
+      description: '',
+      quantity: 1,
+      rate: 0,
+      amount: 0
+    };
+    setItems([...items, newItem]);
+  };
+
+  const removeItem = (id: string) => {
+    if (items.length > 1) {
+      setItems(items.filter(item => item.id !== id));
+    }
+  };
+
+  const updateItem = (id: string, field: keyof InvoiceItem, value: string | number) => {
+    setItems(items.map(item => {
+      if (item.id === id) {
+        const updatedItem = { ...item, [field]: value };
+        if (field === 'quantity' || field === 'rate') {
+          updatedItem.amount = updatedItem.quantity * updatedItem.rate;
+        }
+        return updatedItem;
+      }
+      return item;
     }));
   };
 
-  const validateForm = (): boolean => {
-    if (!formData.clientName.trim()) {
-      toast({
-        title: "Validation Error",
-        description: "Please enter the client's name",
-        variant: "destructive"
-      });
-      return false;
-    }
-    if (!formData.serviceDescription.trim()) {
-      toast({
-        title: "Validation Error",
-        description: "Please enter a service description",
-        variant: "destructive"
-      });
-      return false;
-    }
-    if (formData.totalHours <= 0) {
-      toast({
-        title: "Validation Error",
-        description: "Please enter valid total hours",
-        variant: "destructive"
-      });
-      return false;
-    }
-    if (formData.hourlyRate <= 0) {
-      toast({
-        title: "Validation Error",
-        description: "Please enter a valid hourly rate",
-        variant: "destructive"
-      });
-      return false;
-    }
-    if (!formData.userName.trim()) {
-      toast({
-        title: "Validation Error",
-        description: "Please enter your name",
-        variant: "destructive"
-      });
-      return false;
-    }
-    if (!formData.userEmail.trim() || !formData.userEmail.includes('@')) {
-      toast({
-        title: "Validation Error",
-        description: "Please enter a valid email address",
-        variant: "destructive"
-      });
-      return false;
-    }
-    return true;
+  const subtotal = items.reduce((sum, item) => sum + item.amount, 0);
+  const tax = subtotal * 0.08; // 8% tax
+  const total = subtotal + tax;
+
+  const handleExpenseItemsAdd = (expenseItems: any[]) => {
+    const newItems = expenseItems.map(expense => ({
+      id: Date.now().toString() + Math.random(),
+      description: expense.description,
+      quantity: 1,
+      rate: expense.amount,
+      amount: expense.amount
+    }));
+    setItems(prev => [...prev, ...newItems]);
   };
 
-  const generatePDF = (): string => {
+  const handleClientInfoUpdate = (info: ClientInfo) => {
+    setClientInfo(info);
+  };
+
+  const handleThemeApply = (theme: BrandTheme) => {
+    setAppliedTheme(theme);
+    // Apply theme to document
+    if (typeof document !== 'undefined') {
+      document.documentElement.style.setProperty('--invoice-primary', theme.colors.primary);
+      document.documentElement.style.setProperty('--invoice-secondary', theme.colors.secondary);
+      document.documentElement.style.setProperty('--invoice-accent', theme.colors.accent);
+    }
+  };
+
+  const generatePDF = () => {
     const doc = new jsPDF();
-    const pageWidth = doc.internal.pageSize.width;
-    const total = formData.totalHours * formData.hourlyRate;
+    
+    // Set colors based on applied theme
+    const primaryColor = appliedTheme?.colors.primary || '#2563eb';
     
     // Header
     doc.setFontSize(24);
-    doc.setTextColor(59, 130, 246);
-    doc.text('INVOICE', pageWidth / 2, 30, { align: 'center' });
+    doc.setTextColor(primaryColor);
+    doc.text('INVOICE', 20, 30);
     
     // Invoice details
     doc.setFontSize(12);
-    doc.setTextColor(0, 0, 0);
-    doc.text(`Invoice Date: ${new Date().toLocaleDateString()}`, 20, 50);
-    doc.text(`Invoice #: INV-${Date.now()}`, 20, 60);
+    doc.setTextColor('#000000');
+    doc.text(`Invoice #: ${invoiceNumber}`, 20, 50);
+    doc.text(`Date: ${invoiceDate}`, 20, 60);
+    doc.text(`Due Date: ${dueDate}`, 20, 70);
     
-    // From section
+    // Client info
+    doc.text('Bill To:', 120, 50);
+    doc.text(clientInfo.name, 120, 60);
+    if (clientInfo.company) doc.text(clientInfo.company, 120, 70);
+    if (clientInfo.email) doc.text(clientInfo.email, 120, 80);
+    
+    // Items table
+    let yPosition = 100;
+    doc.text('Description', 20, yPosition);
+    doc.text('Qty', 120, yPosition);
+    doc.text('Rate', 140, yPosition);
+    doc.text('Amount', 170, yPosition);
+    
+    yPosition += 10;
+    items.forEach(item => {
+      doc.text(item.description, 20, yPosition);
+      doc.text(item.quantity.toString(), 120, yPosition);
+      doc.text(`$${item.rate.toFixed(2)}`, 140, yPosition);
+      doc.text(`$${item.amount.toFixed(2)}`, 170, yPosition);
+      yPosition += 10;
+    });
+    
+    // Totals
+    yPosition += 10;
+    doc.text(`Subtotal: $${subtotal.toFixed(2)}`, 140, yPosition);
+    doc.text(`Tax: $${tax.toFixed(2)}`, 140, yPosition + 10);
     doc.setFontSize(14);
-    doc.setTextColor(59, 130, 246);
-    doc.text('From:', 20, 80);
-    doc.setFontSize(12);
-    doc.setTextColor(0, 0, 0);
-    doc.text(formData.userName, 20, 90);
-    doc.text(formData.userEmail, 20, 100);
+    doc.text(`Total: $${total.toFixed(2)}`, 140, yPosition + 20);
     
-    // To section
-    doc.setFontSize(14);
-    doc.setTextColor(59, 130, 246);
-    doc.text('To:', 20, 120);
-    doc.setFontSize(12);
-    doc.setTextColor(0, 0, 0);
-    doc.text(formData.clientName, 20, 130);
-    
-    // Service details
-    doc.setFontSize(14);
-    doc.setTextColor(59, 130, 246);
-    doc.text('Service Description:', 20, 160);
-    doc.setFontSize(12);
-    doc.setTextColor(0, 0, 0);
-    const splitDescription = doc.splitTextToSize(formData.serviceDescription, pageWidth - 40);
-    doc.text(splitDescription, 20, 170);
-    
-    // Invoice table
-    const tableStartY = 200;
-    doc.setFontSize(12);
-    doc.setFillColor(59, 130, 246);
-    doc.rect(20, tableStartY, pageWidth - 40, 10, 'F');
-    doc.setTextColor(255, 255, 255);
-    doc.text('Description', 25, tableStartY + 7);
-    doc.text('Hours', 100, tableStartY + 7);
-    doc.text('Rate', 130, tableStartY + 7);
-    doc.text('Total', 160, tableStartY + 7);
-    
-    doc.setTextColor(0, 0, 0);
-    doc.text('Professional Services', 25, tableStartY + 20);
-    doc.text(formData.totalHours.toString(), 100, tableStartY + 20);
-    doc.text(`$${formData.hourlyRate.toFixed(2)}`, 130, tableStartY + 20);
-    doc.text(`$${total.toFixed(2)}`, 160, tableStartY + 20);
-    
-    // Total section
-    doc.setFontSize(14);
-    doc.setTextColor(59, 130, 246);
-    doc.text(`Total Amount: $${total.toFixed(2)}`, pageWidth - 80, tableStartY + 40, { align: 'right' });
-    
-    // Footer
-    doc.setFontSize(10);
-    doc.setTextColor(128, 128, 128);
-    doc.text('Thank you for your business!', pageWidth / 2, 270, { align: 'center' });
-    
-    return doc.output('datauristring');
-  };
-
-  const handleGenerateAndSend = async () => {
-    if (!validateForm()) return;
-    
-    setIsGenerating(true);
-    setIsSending(true);
-    
-    try {
-      console.log('Generating PDF invoice...');
-      const pdfData = generatePDF();
-      const pdfBase64 = pdfData.split(',')[1];
-      
-      console.log('Sending email with invoice...');
-      const { error } = await window.ezsite.apis.sendEmail({
-        from: 'support@ezsite.ai',
-        to: [formData.userEmail],
-        subject: `Invoice for ${formData.clientName} - ${new Date().toLocaleDateString()}`,
-        html: `
-          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-            <h2 style="color: #3b82f6;">Your Invoice is Ready!</h2>
-            <p>Dear ${formData.userName},</p>
-            <p>Your professional invoice has been generated successfully. Please find the PDF invoice attached to this email.</p>
-            <div style="background-color: #f3f4f6; padding: 20px; border-radius: 8px; margin: 20px 0;">
-              <h3 style="margin-top: 0;">Invoice Summary:</h3>
-              <p><strong>Client:</strong> ${formData.clientName}</p>
-              <p><strong>Service:</strong> ${formData.serviceDescription}</p>
-              <p><strong>Hours:</strong> ${formData.totalHours}</p>
-              <p><strong>Rate:</strong> $${formData.hourlyRate.toFixed(2)}/hour</p>
-              <p><strong>Total:</strong> $${(formData.totalHours * formData.hourlyRate).toFixed(2)}</p>
-            </div>
-            <p>Thank you for using our invoice generator!</p>
-            <p>Best regards,<br>The Invoice Generator Team</p>
-          </div>
-        `,
-        attachments: [{
-          filename: `invoice-${formData.clientName.replace(/\s+/g, '-').toLowerCase()}-${Date.now()}.pdf`,
-          content: pdfBase64,
-          type: 'application/pdf',
-          disposition: 'attachment'
-        }]
-      });
-      
-      if (error) {
-        throw new Error(error);
-      }
-      
-      toast({
-        title: "Success!",
-        description: "Your invoice has been generated and sent to your email.",
-        variant: "default"
-      });
-      
-      // Reset form
-      setFormData({
-        clientName: '',
-        serviceDescription: '',
-        totalHours: 0,
-        hourlyRate: 0,
-        userName: '',
-        userEmail: ''
-      });
-      
-    } catch (error) {
-      console.error('Error generating or sending invoice:', error);
-      toast({
-        title: "Error",
-        description: "Failed to generate or send the invoice. Please try again.",
-        variant: "destructive"
-      });
-    } finally {
-      setIsGenerating(false);
-      setIsSending(false);
+    if (notes) {
+      doc.setFontSize(10);
+      doc.text('Notes:', 20, yPosition + 30);
+      doc.text(notes, 20, yPosition + 40);
     }
+    
+    doc.save(`invoice-${invoiceNumber}.pdf`);
+    
+    toast({
+      title: "PDF Generated!",
+      description: "Your invoice has been downloaded successfully."
+    });
   };
-
-  const total = formData.totalHours * formData.hourlyRate;
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50 p-4">
-      <div className="max-w-4xl mx-auto">
-        <div className="text-center mb-8">
-          <div className="inline-flex items-center gap-3 mb-4">
-            <div className="p-3 bg-gradient-to-r from-blue-500 to-purple-600 rounded-full text-white">
-              <FileText size={32} />
-            </div>
-            <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
-              Invoice Generator
-            </h1>
-          </div>
-          <p className="text-lg text-gray-600 max-w-2xl mx-auto">
-            Create professional invoices instantly. Enter your details below and receive a beautifully designed PDF invoice in your inbox.
-          </p>
-        </div>
-
-        <div className="grid lg:grid-cols-2 gap-8">
-          {/* Form Section */}
-          <Card className="shadow-xl border-0 bg-white/80 backdrop-blur">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Calculator className="text-blue-500" size={24} />
-                Invoice Details
-              </CardTitle>
-              <CardDescription>
-                Fill in the details below to generate your professional invoice.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              {/* Client Information */}
-              <div className="space-y-4">
-                <h3 className="font-semibold text-gray-800 flex items-center gap-2">
-                  <User className="text-blue-500" size={18} />
-                  Client Information
-                </h3>
-                <div className="space-y-2">
-                  <Label htmlFor="clientName">Client Name</Label>
-                  <Input
-                    id="clientName"
-                    placeholder="Enter client's name"
-                    value={formData.clientName}
-                    onChange={(e) => handleInputChange('clientName', e.target.value)}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="serviceDescription">Service Description</Label>
-                  <Textarea
-                    id="serviceDescription"
-                    placeholder="Describe the services provided"
-                    value={formData.serviceDescription}
-                    onChange={(e) => handleInputChange('serviceDescription', e.target.value)}
-                    rows={3}
-                  />
-                </div>
-              </div>
-
-              <Separator />
-
-              {/* Service Details */}
-              <div className="space-y-4">
-                <h3 className="font-semibold text-gray-800 flex items-center gap-2">
-                  <Clock className="text-blue-500" size={18} />
-                  Service Details
-                </h3>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="totalHours">Total Hours</Label>
-                    <Input
-                      id="totalHours"
-                      type="number"
-                      placeholder="0"
-                      value={formData.totalHours || ''}
-                      onChange={(e) => handleInputChange('totalHours', parseFloat(e.target.value) || 0)}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="hourlyRate">Hourly Rate ($)</Label>
-                    <Input
-                      id="hourlyRate"
-                      type="number"
-                      placeholder="0.00"
-                      value={formData.hourlyRate || ''}
-                      onChange={(e) => handleInputChange('hourlyRate', parseFloat(e.target.value) || 0)}
-                    />
-                  </div>
-                </div>
-              </div>
-
-              <Separator />
-
-              {/* Your Information */}
-              <div className="space-y-4">
-                <h3 className="font-semibold text-gray-800 flex items-center gap-2">
-                  <Mail className="text-blue-500" size={18} />
-                  Your Information
-                </h3>
-                <div className="space-y-2">
-                  <Label htmlFor="userName">Your Name</Label>
-                  <Input
-                    id="userName"
-                    placeholder="Enter your name"
-                    value={formData.userName}
-                    onChange={(e) => handleInputChange('userName', e.target.value)}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="userEmail">Your Email</Label>
-                  <Input
-                    id="userEmail"
-                    type="email"
-                    placeholder="your.email@example.com"
-                    value={formData.userEmail}
-                    onChange={(e) => handleInputChange('userEmail', e.target.value)}
-                  />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Preview Section */}
-          <Card className="shadow-xl border-0 bg-white/80 backdrop-blur">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <DollarSign className="text-green-500" size={24} />
-                Invoice Preview
-              </CardTitle>
-              <CardDescription>
-                Preview your invoice before generating the PDF.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <div className="bg-gradient-to-r from-blue-50 to-purple-50 p-6 rounded-lg">
-                <div className="space-y-4">
-                  <div className="text-center">
-                    <h2 className="text-2xl font-bold text-blue-600">INVOICE</h2>
-                    <p className="text-sm text-gray-600">
-                      Date: {new Date().toLocaleDateString()}
-                    </p>
-                  </div>
-                  
-                  <Separator />
-                  
-                  <div className="grid grid-cols-2 gap-4 text-sm">
-                    <div>
-                      <p className="font-semibold text-blue-600">From:</p>
-                      <p>{formData.userName || 'Your Name'}</p>
-                      <p>{formData.userEmail || 'your.email@example.com'}</p>
-                    </div>
-                    <div>
-                      <p className="font-semibold text-blue-600">To:</p>
-                      <p>{formData.clientName || 'Client Name'}</p>
-                    </div>
-                  </div>
-                  
-                  <div>
-                    <p className="font-semibold text-blue-600 mb-2">Service:</p>
-                    <p className="text-sm text-gray-700">
-                      {formData.serviceDescription || 'Service description will appear here'}
-                    </p>
-                  </div>
-                  
-                  <div className="bg-white rounded-lg p-4">
-                    <div className="grid grid-cols-4 gap-2 text-xs font-semibold text-gray-700 mb-2">
-                      <span>Hours</span>
-                      <span>Rate</span>
-                      <span>Total</span>
-                    </div>
-                    <div className="grid grid-cols-4 gap-2 text-sm">
-                      <span>{formData.totalHours || 0}</span>
-                      <span>${formData.hourlyRate?.toFixed(2) || '0.00'}</span>
-                      <span className="font-bold">${total.toFixed(2)}</span>
-                    </div>
-                  </div>
-                  
-                  <div className="text-right">
-                    <p className="text-lg font-bold text-green-600">
-                      Total: ${total.toFixed(2)}
-                    </p>
-                  </div>
-                </div>
-              </div>
-              
-              <Button
-                onClick={handleGenerateAndSend}
-                disabled={isGenerating || isSending}
-                className="w-full bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white font-semibold py-3"
-                size="lg"
-              >
-                {isGenerating ? (
-                  <div className="flex items-center gap-2">
-                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                    Generating Invoice...
-                  </div>
-                ) : isSending ? (
-                  <div className="flex items-center gap-2">
-                    <Mail size={18} />
-                    Sending to Email...
-                  </div>
-                ) : (
-                  <div className="flex items-center gap-2">
-                    <FileText size={18} />
-                    Generate & Send Invoice
-                  </div>
-                )}
-              </Button>
-              
-              <p className="text-xs text-center text-gray-500">
-                The invoice PDF will be sent to your email address
-              </p>
-            </CardContent>
-          </Card>
-        </div>
+    <div className="max-w-7xl mx-auto p-4 space-y-6">
+      <div className="text-center mb-8">
+        <h1 className="text-4xl font-bold mb-2 bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
+          AI-Powered Invoice Generator
+        </h1>
+        <p className="text-lg text-gray-600">
+          Enhanced with intelligent features to streamline your billing process
+        </p>
+        {appliedTheme && (
+          <Badge variant="outline" className="mt-2">
+            <Sparkles className="h-3 w-3 mr-1" />
+            Using "{appliedTheme.name}" theme
+          </Badge>
+        )}
       </div>
+
+      <Tabs defaultValue="invoice" className="w-full">
+        <TabsList className="grid w-full grid-cols-5">
+          <TabsTrigger value="invoice">Invoice</TabsTrigger>
+          <TabsTrigger value="expenses">
+            <Bot className="h-4 w-4 mr-2" />
+            Expenses
+          </TabsTrigger>
+          <TabsTrigger value="branding">
+            <Bot className="h-4 w-4 mr-2" />
+            Branding
+          </TabsTrigger>
+          <TabsTrigger value="clients">
+            <Bot className="h-4 w-4 mr-2" />
+            Clients
+          </TabsTrigger>
+          <TabsTrigger value="disputes">
+            <Bot className="h-4 w-4 mr-2" />
+            Disputes
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="invoice" className="space-y-6">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Invoice Form */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <FileText className="h-5 w-5" />
+                  Invoice Details
+                </CardTitle>
+                <CardDescription>
+                  Fill in your invoice information
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                {/* Basic Info */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="invoice-number">Invoice Number</Label>
+                    <Input
+                      id="invoice-number"
+                      value={invoiceNumber}
+                      onChange={(e) => setInvoiceNumber(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="invoice-date">Invoice Date</Label>
+                    <Input
+                      id="invoice-date"
+                      type="date"
+                      value={invoiceDate}
+                      onChange={(e) => setInvoiceDate(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="due-date">Due Date</Label>
+                    <Input
+                      id="due-date"
+                      type="date"
+                      value={dueDate}
+                      onChange={(e) => setDueDate(e.target.value)}
+                    />
+                  </div>
+                </div>
+
+                {/* Client Information */}
+                <div className="space-y-4">
+                  <Label className="text-lg font-semibold">Client Information</Label>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="client-name">Client Name</Label>
+                      <Input
+                        id="client-name"
+                        value={clientInfo.name}
+                        onChange={(e) => setClientInfo(prev => ({ ...prev, name: e.target.value }))}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="client-email">Email</Label>
+                      <Input
+                        id="client-email"
+                        type="email"
+                        value={clientInfo.email}
+                        onChange={(e) => setClientInfo(prev => ({ ...prev, email: e.target.value }))}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="client-company">Company</Label>
+                      <Input
+                        id="client-company"
+                        value={clientInfo.company || ''}
+                        onChange={(e) => setClientInfo(prev => ({ ...prev, company: e.target.value }))}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="client-phone">Phone</Label>
+                      <Input
+                        id="client-phone"
+                        value={clientInfo.phone || ''}
+                        onChange={(e) => setClientInfo(prev => ({ ...prev, phone: e.target.value }))}
+                      />
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="client-address">Address</Label>
+                    <Textarea
+                      id="client-address"
+                      value={clientInfo.address || ''}
+                      onChange={(e) => setClientInfo(prev => ({ ...prev, address: e.target.value }))}
+                    />
+                  </div>
+                </div>
+
+                {/* Invoice Items */}
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-lg font-semibold">Invoice Items</Label>
+                    <Button size="sm" onClick={addItem} className="flex items-center gap-2">
+                      <Plus className="h-4 w-4" />
+                      Add Item
+                    </Button>
+                  </div>
+                  
+                  <div className="space-y-3">
+                    {items.map((item) => (
+                      <div key={item.id} className="grid grid-cols-12 gap-2 items-end">
+                        <div className="col-span-5">
+                          <Label className="text-sm">Description</Label>
+                          <Input
+                            placeholder="Item description"
+                            value={item.description}
+                            onChange={(e) => updateItem(item.id, 'description', e.target.value)}
+                          />
+                        </div>
+                        <div className="col-span-2">
+                          <Label className="text-sm">Quantity</Label>
+                          <Input
+                            type="number"
+                            min="1"
+                            value={item.quantity}
+                            onChange={(e) => updateItem(item.id, 'quantity', parseInt(e.target.value) || 1)}
+                          />
+                        </div>
+                        <div className="col-span-2">
+                          <Label className="text-sm">Rate</Label>
+                          <Input
+                            type="number"
+                            step="0.01"
+                            value={item.rate}
+                            onChange={(e) => updateItem(item.id, 'rate', parseFloat(e.target.value) || 0)}
+                          />
+                        </div>
+                        <div className="col-span-2">
+                          <Label className="text-sm">Amount</Label>
+                          <Input
+                            value={`$${item.amount.toFixed(2)}`}
+                            readOnly
+                            className="bg-gray-50"
+                          />
+                        </div>
+                        <div className="col-span-1">
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => removeItem(item.id)}
+                            disabled={items.length === 1}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Notes */}
+                <div className="space-y-2">
+                  <Label htmlFor="notes">Notes</Label>
+                  <Textarea
+                    id="notes"
+                    placeholder="Additional notes or terms..."
+                    value={notes}
+                    onChange={(e) => setNotes(e.target.value)}
+                  />
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Invoice Preview */}
+            <Card>
+              <CardHeader>
+                <CardTitle>Invoice Preview</CardTitle>
+                <CardDescription>
+                  Preview of your invoice
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div 
+                  ref={invoiceRef} 
+                  className="p-6 bg-white border rounded-lg space-y-6"
+                  style={{
+                    color: appliedTheme?.colors.secondary || '#1f2937',
+                    fontFamily: appliedTheme?.fonts.body || 'inherit'
+                  }}
+                >
+                  {/* Header */}
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <h2 
+                        className="text-3xl font-bold"
+                        style={{
+                          color: appliedTheme?.colors.primary || '#2563eb',
+                          fontFamily: appliedTheme?.fonts.heading || 'inherit'
+                        }}
+                      >
+                        INVOICE
+                      </h2>
+                      <p className="text-sm text-gray-600">#{invoiceNumber}</p>
+                    </div>
+                    <div className="text-right text-sm">
+                      <p><strong>Date:</strong> {invoiceDate}</p>
+                      <p><strong>Due:</strong> {dueDate}</p>
+                    </div>
+                  </div>
+
+                  {/* Client Info */}
+                  <div>
+                    <h3 className="font-semibold mb-2" style={{ color: appliedTheme?.colors.primary || '#2563eb' }}>
+                      Bill To:
+                    </h3>
+                    <div className="text-sm">
+                      <p className="font-medium">{clientInfo.name}</p>
+                      {clientInfo.company && <p>{clientInfo.company}</p>}
+                      {clientInfo.email && <p>{clientInfo.email}</p>}
+                      {clientInfo.phone && <p>{clientInfo.phone}</p>}
+                      {clientInfo.address && <p className="whitespace-pre-line">{clientInfo.address}</p>}
+                    </div>
+                  </div>
+
+                  {/* Items Table */}
+                  <div>
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b" style={{ borderColor: appliedTheme?.colors.accent || '#f59e0b' }}>
+                          <th className="text-left py-2">Description</th>
+                          <th className="text-center py-2">Qty</th>
+                          <th className="text-right py-2">Rate</th>
+                          <th className="text-right py-2">Amount</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {items.map((item) => (
+                          <tr key={item.id} className="border-b border-gray-100">
+                            <td className="py-2">{item.description}</td>
+                            <td className="text-center py-2">{item.quantity}</td>
+                            <td className="text-right py-2">${item.rate.toFixed(2)}</td>
+                            <td className="text-right py-2">${item.amount.toFixed(2)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* Totals */}
+                  <div className="flex justify-end">
+                    <div className="w-64 space-y-2">
+                      <div className="flex justify-between">
+                        <span>Subtotal:</span>
+                        <span>${subtotal.toFixed(2)}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Tax (8%):</span>
+                        <span>${tax.toFixed(2)}</span>
+                      </div>
+                      <Separator />
+                      <div className="flex justify-between font-bold text-lg" style={{ color: appliedTheme?.colors.primary || '#2563eb' }}>
+                        <span>Total:</span>
+                        <span>${total.toFixed(2)}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Notes */}
+                  {notes && (
+                    <div>
+                      <h3 className="font-semibold mb-2" style={{ color: appliedTheme?.colors.primary || '#2563eb' }}>
+                        Notes:
+                      </h3>
+                      <p className="text-sm whitespace-pre-line">{notes}</p>
+                    </div>
+                  )}
+                </div>
+
+                <div className="mt-6">
+                  <Button onClick={generatePDF} className="w-full flex items-center gap-2">
+                    <Download className="h-4 w-4" />
+                    Download PDF
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        </TabsContent>
+
+        <TabsContent value="expenses">
+          <ExpenseReceiptMatcher onAddToInvoice={handleExpenseItemsAdd} />
+        </TabsContent>
+
+        <TabsContent value="branding">
+          <AIBrandingThemes onApplyTheme={handleThemeApply} />
+        </TabsContent>
+
+        <TabsContent value="clients">
+          <ClientInfoEnricher onClientInfoUpdate={handleClientInfoUpdate} />
+        </TabsContent>
+
+        <TabsContent value="disputes">
+          <DisputeResolverBot 
+            invoiceContext={{
+              invoiceNumber,
+              clientName: clientInfo.name,
+              amount: total,
+              daysOverdue: 0,
+              previousContacts: 0
+            }}
+          />
+        </TabsContent>
+      </Tabs>
     </div>
   );
 };
